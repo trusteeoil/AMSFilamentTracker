@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 
 const DEFAULT_PRINTERS = [
   { id: 'x2d', name: 'X2D', amsType: 'ams'      },
@@ -95,8 +95,8 @@ const btnImport    = document.getElementById('btn-import');
 const importInput  = document.getElementById('import-file-input');
 const lastExportedDisplay = document.getElementById('last-exported-display');
 const appVersionEl = document.getElementById('app-version');
-const btnHomeSave  = document.getElementById('btn-home-save');
-const homeLastSaved = document.getElementById('home-last-saved');
+const btnSortPrinters  = document.getElementById('btn-sort-printers');
+const btnSortSpoolTypes = document.getElementById('btn-sort-spools');
 
 const modalOverlay  = document.getElementById('modal-overlay');
 const modalTitle    = document.getElementById('modal-title');
@@ -321,14 +321,15 @@ function populateSpoolSelect(preserveValue) {
 
 function openModal(printer, slot) {
   activeEdit = { printerId: printer.id, slot };
-  const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: DEFAULT_SPOOL_TYPES[0].tare };
+  const defaultTare = state.spoolTypes?.[0]?.tare ?? DEFAULT_SPOOL_TYPES[0].tare;
+  const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: defaultTare };
 
   modalTitle.textContent = `Update Slot ${slot} — ${printer.name}`;
 
   // Weigh tab setup — populate dropdown then select saved spool
-  populateSpoolSelect(String(slotData.spoolWeight ?? DEFAULT_SPOOL_TYPES[0].tare));
+  populateSpoolSelect(String(slotData.spoolWeight ?? defaultTare));
   inputWeight.value = slotData.grams !== null
-    ? String(slotData.grams + (slotData.spoolWeight ?? DEFAULT_SPOOL_TYPES[0].tare))
+    ? String(slotData.grams + (slotData.spoolWeight ?? defaultTare))
     : '';
   updateRemainingDisplay();
 
@@ -453,18 +454,17 @@ document.addEventListener('keydown', (e) => {
 function renderSettings() {
   appVersionEl.textContent = 'v' + APP_VERSION;
   updateLastExportedDisplay();
+  // Reset sort modes whenever settings page is opened
+  printerSortMode = false;
+  spoolSortMode   = false;
   renderPrinterList();
   renderSpoolTypes();
 }
 
 function updateLastExportedDisplay() {
-  const text = state.lastExported
+  lastExportedDisplay.textContent = state.lastExported
     ? new Date(state.lastExported).toLocaleString()
     : 'Never';
-  lastExportedDisplay.textContent = text;
-  homeLastSaved.textContent = state.lastExported
-    ? 'Last saved: ' + formatRelativeTime(state.lastExported)
-    : 'Not yet saved — tap to back up';
 }
 
 // ── Export / Save ──────────────────────────────────────────────────────────
@@ -486,7 +486,6 @@ function doSave() {
 }
 
 btnExport.addEventListener('click', doSave);
-btnHomeSave.addEventListener('click', doSave);
 
 // ── Import ─────────────────────────────────────────────────────────────────
 
@@ -530,12 +529,18 @@ importInput.addEventListener('change', () => {
 
 // ── Printer management ─────────────────────────────────────────────────────
 
-let editingPrinterIndex = null; // null = new, number = editing
-let selectedAmsType = 'ams'; // 'ams' | 'ams-lite' | 'single'
+let editingPrinterIndex = null;
+let selectedAmsType = 'ams';
+let printerSortMode = false;
+let spoolSortMode   = false;
 
 function renderPrinterList() {
   const printers = state.printerList ?? defaultPrinterList();
   printerListSettings.innerHTML = '';
+
+  // Sync sort toggle button label
+  btnSortPrinters.textContent = printerSortMode ? 'Done' : 'Sort';
+  btnSortPrinters.classList.toggle('active', printerSortMode);
 
   for (let i = 0; i < printers.length; i++) {
     const p = printers[i];
@@ -558,26 +563,61 @@ function renderPrinterList() {
     const actions = document.createElement('div');
     actions.className = 'spool-type-actions';
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'spool-action-btn edit-btn';
-    editBtn.textContent = 'Edit';
-    editBtn.setAttribute('aria-label', `Edit ${p.name}`);
-    editBtn.addEventListener('click', () => openPrinterModal(i));
+    if (printerSortMode) {
+      const upBtn = document.createElement('button');
+      upBtn.className = 'sort-btn';
+      upBtn.textContent = '↑';
+      upBtn.setAttribute('aria-label', `Move ${p.name} up`);
+      upBtn.disabled = i === 0;
+      upBtn.addEventListener('click', () => movePrinter(i, -1));
 
-    const delBtn = document.createElement('button');
-    delBtn.className = 'spool-action-btn delete-btn';
-    delBtn.textContent = 'Delete';
-    delBtn.setAttribute('aria-label', `Delete ${p.name}`);
-    delBtn.disabled = printers.length <= 1;
-    delBtn.addEventListener('click', () => deletePrinter(i));
+      const downBtn = document.createElement('button');
+      downBtn.className = 'sort-btn';
+      downBtn.textContent = '↓';
+      downBtn.setAttribute('aria-label', `Move ${p.name} down`);
+      downBtn.disabled = i === printers.length - 1;
+      downBtn.addEventListener('click', () => movePrinter(i, 1));
 
-    actions.appendChild(editBtn);
-    actions.appendChild(delBtn);
+      actions.appendChild(upBtn);
+      actions.appendChild(downBtn);
+    } else {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'spool-action-btn edit-btn';
+      editBtn.textContent = 'Edit';
+      editBtn.setAttribute('aria-label', `Edit ${p.name}`);
+      editBtn.addEventListener('click', () => openPrinterModal(i));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'spool-action-btn delete-btn';
+      delBtn.textContent = 'Delete';
+      delBtn.setAttribute('aria-label', `Delete ${p.name}`);
+      delBtn.disabled = printers.length <= 1;
+      delBtn.addEventListener('click', () => deletePrinter(i));
+
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+    }
+
     row.appendChild(info);
     row.appendChild(actions);
     printerListSettings.appendChild(row);
   }
 }
+
+function movePrinter(index, direction) {
+  const list = state.printerList;
+  const newIdx = index + direction;
+  if (newIdx < 0 || newIdx >= list.length) return;
+  [list[index], list[newIdx]] = [list[newIdx], list[index]];
+  saveState();
+  renderPrinterList();
+  renderHome();
+}
+
+btnSortPrinters.addEventListener('click', () => {
+  printerSortMode = !printerSortMode;
+  renderPrinterList();
+});
 
 function setAmsType(type) {
   selectedAmsType = type;
@@ -693,41 +733,81 @@ function renderSpoolTypes() {
   const types = state.spoolTypes ?? defaultSpoolTypes();
   spoolTypesList.innerHTML = '';
 
+  // Sync sort toggle button label
+  btnSortSpoolTypes.textContent = spoolSortMode ? 'Done' : 'Sort';
+  btnSortSpoolTypes.classList.toggle('active', spoolSortMode);
+
   for (let i = 0; i < types.length; i++) {
     const t = types[i];
     const row = document.createElement('div');
     row.className = 'spool-type-row';
 
+    const isDefault = i === 0;
     const info = document.createElement('div');
     info.className = 'spool-type-info';
     info.innerHTML = `
-      <span class="spool-type-name">${t.name}</span>
+      <span class="spool-type-name">${t.name}${isDefault ? ' <span class="default-badge">default</span>' : ''}</span>
       <span class="spool-type-tare">${t.tare}g empty spool weight</span>
     `;
 
     const actions = document.createElement('div');
     actions.className = 'spool-type-actions';
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'spool-action-btn edit-btn';
-    editBtn.textContent = 'Edit';
-    editBtn.setAttribute('aria-label', `Edit ${t.name}`);
-    editBtn.addEventListener('click', () => openSpoolModal(i));
+    if (spoolSortMode) {
+      const upBtn = document.createElement('button');
+      upBtn.className = 'sort-btn';
+      upBtn.textContent = '↑';
+      upBtn.setAttribute('aria-label', `Move ${t.name} up`);
+      upBtn.disabled = i === 0;
+      upBtn.addEventListener('click', () => moveSpoolType(i, -1));
 
-    const delBtn = document.createElement('button');
-    delBtn.className = 'spool-action-btn delete-btn';
-    delBtn.textContent = 'Delete';
-    delBtn.setAttribute('aria-label', `Delete ${t.name}`);
-    delBtn.disabled = types.length <= 1;
-    delBtn.addEventListener('click', () => deleteSpoolType(i));
+      const downBtn = document.createElement('button');
+      downBtn.className = 'sort-btn';
+      downBtn.textContent = '↓';
+      downBtn.setAttribute('aria-label', `Move ${t.name} down`);
+      downBtn.disabled = i === types.length - 1;
+      downBtn.addEventListener('click', () => moveSpoolType(i, 1));
 
-    actions.appendChild(editBtn);
-    actions.appendChild(delBtn);
+      actions.appendChild(upBtn);
+      actions.appendChild(downBtn);
+    } else {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'spool-action-btn edit-btn';
+      editBtn.textContent = 'Edit';
+      editBtn.setAttribute('aria-label', `Edit ${t.name}`);
+      editBtn.addEventListener('click', () => openSpoolModal(i));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'spool-action-btn delete-btn';
+      delBtn.textContent = 'Delete';
+      delBtn.setAttribute('aria-label', `Delete ${t.name}`);
+      delBtn.disabled = types.length <= 1;
+      delBtn.addEventListener('click', () => deleteSpoolType(i));
+
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+    }
+
     row.appendChild(info);
     row.appendChild(actions);
     spoolTypesList.appendChild(row);
   }
 }
+
+function moveSpoolType(index, direction) {
+  const types = state.spoolTypes;
+  const newIdx = index + direction;
+  if (newIdx < 0 || newIdx >= types.length) return;
+  [types[index], types[newIdx]] = [types[newIdx], types[index]];
+  saveState();
+  renderSpoolTypes();
+  populateSpoolSelect();
+}
+
+btnSortSpoolTypes.addEventListener('click', () => {
+  spoolSortMode = !spoolSortMode;
+  renderSpoolTypes();
+});
 
 function openSpoolModal(index = null) {
   editingSpoolIndex = index;
