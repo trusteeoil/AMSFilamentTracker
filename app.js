@@ -313,20 +313,6 @@ let activeEdit = null; // { printerId, slot }
 let activeTab  = 'weigh';   // 'weigh' | 'adjust'
 let adjustMode = 'subtract'; // 'subtract' | 'add'
 
-// ── Visual Viewport: keep modal above the keyboard ─────────────────────────
-
-function syncModalToViewport() {
-  if (!window.visualViewport) return;
-  const vv = window.visualViewport;
-  modalOverlay.style.top    = vv.offsetTop + 'px';
-  modalOverlay.style.left   = vv.offsetLeft + 'px';
-  modalOverlay.style.height = vv.height + 'px';
-  modalOverlay.style.width  = vv.width + 'px';
-}
-
-function resetModalViewport() {
-  ['top','left','height','width'].forEach(p => modalOverlay.style[p] = '');
-}
 
 // ── Tab switching ──────────────────────────────────────────────────────────
 
@@ -467,13 +453,6 @@ function openModal(printer, slot) {
   switchTab('weigh');
 
   modalOverlay.classList.remove('hidden');
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', syncModalToViewport);
-    window.visualViewport.addEventListener('scroll', syncModalToViewport);
-    syncModalToViewport();
-  }
-
   setTimeout(() => inputWeight.focus(), 80);
 }
 
@@ -483,11 +462,6 @@ function closeModal() {
   inputWeight.value = '';
   inputAdjustGrams.value = '';
 
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', syncModalToViewport);
-    window.visualViewport.removeEventListener('scroll', syncModalToViewport);
-  }
-  resetModalViewport();
 }
 
 // ── Weigh tab live calc ────────────────────────────────────────────────────
@@ -792,33 +766,12 @@ function openPrinterModal(index = null) {
   }
 
   printerModalOverlay.classList.remove('hidden');
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', syncPrinterModal);
-    window.visualViewport.addEventListener('scroll', syncPrinterModal);
-    syncPrinterModal();
-  }
-
   setTimeout(() => inputPrinterName.focus(), 80);
-}
-
-function syncPrinterModal() {
-  if (!window.visualViewport) return;
-  const vv = window.visualViewport;
-  printerModalOverlay.style.top    = vv.offsetTop + 'px';
-  printerModalOverlay.style.left   = vv.offsetLeft + 'px';
-  printerModalOverlay.style.height = vv.height + 'px';
-  printerModalOverlay.style.width  = vv.width + 'px';
 }
 
 function closePrinterModal() {
   printerModalOverlay.classList.add('hidden');
   editingPrinterIndex = null;
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', syncPrinterModal);
-    window.visualViewport.removeEventListener('scroll', syncPrinterModal);
-  }
-  ['top','left','height','width'].forEach(p => printerModalOverlay.style[p] = '');
 }
 
 function deletePrinter(index) {
@@ -973,33 +926,12 @@ function openSpoolModal(index = null) {
   }
 
   spoolModalOverlay.classList.remove('hidden');
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', syncSpoolModal);
-    window.visualViewport.addEventListener('scroll', syncSpoolModal);
-    syncSpoolModal();
-  }
-
   setTimeout(() => inputSpoolName.focus(), 80);
-}
-
-function syncSpoolModal() {
-  if (!window.visualViewport) return;
-  const vv = window.visualViewport;
-  spoolModalOverlay.style.top    = vv.offsetTop + 'px';
-  spoolModalOverlay.style.left   = vv.offsetLeft + 'px';
-  spoolModalOverlay.style.height = vv.height + 'px';
-  spoolModalOverlay.style.width  = vv.width + 'px';
 }
 
 function closeSpoolModal() {
   spoolModalOverlay.classList.add('hidden');
   editingSpoolIndex = null;
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', syncSpoolModal);
-    window.visualViewport.removeEventListener('scroll', syncSpoolModal);
-  }
-  ['top','left','height','width'].forEach(p => spoolModalOverlay.style[p] = '');
 }
 
 function deleteSpoolType(index) {
@@ -1146,33 +1078,12 @@ function openFilamentTypeModal(index = null) {
   }
 
   filamentTypeModalOverlay.classList.remove('hidden');
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', syncFilamentTypeModal);
-    window.visualViewport.addEventListener('scroll', syncFilamentTypeModal);
-    syncFilamentTypeModal();
-  }
-
   setTimeout(() => inputFilamentTypeName.focus(), 80);
-}
-
-function syncFilamentTypeModal() {
-  if (!window.visualViewport) return;
-  const vv = window.visualViewport;
-  filamentTypeModalOverlay.style.top    = vv.offsetTop + 'px';
-  filamentTypeModalOverlay.style.left   = vv.offsetLeft + 'px';
-  filamentTypeModalOverlay.style.height = vv.height + 'px';
-  filamentTypeModalOverlay.style.width  = vv.width + 'px';
 }
 
 function closeFilamentTypeModal() {
   filamentTypeModalOverlay.classList.add('hidden');
   editingFilamentTypeIndex = null;
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', syncFilamentTypeModal);
-    window.visualViewport.removeEventListener('scroll', syncFilamentTypeModal);
-  }
-  ['top','left','height','width'].forEach(p => filamentTypeModalOverlay.style[p] = '');
 }
 
 function deleteFilamentType(index) {
@@ -1322,33 +1233,12 @@ function openColorModal(index = null) {
   }
 
   colorModalOverlay.classList.remove('hidden');
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', syncColorModal);
-    window.visualViewport.addEventListener('scroll', syncColorModal);
-    syncColorModal();
-  }
-
   setTimeout(() => inputColorName.focus(), 80);
-}
-
-function syncColorModal() {
-  if (!window.visualViewport) return;
-  const vv = window.visualViewport;
-  colorModalOverlay.style.top    = vv.offsetTop + 'px';
-  colorModalOverlay.style.left   = vv.offsetLeft + 'px';
-  colorModalOverlay.style.height = vv.height + 'px';
-  colorModalOverlay.style.width  = vv.width + 'px';
 }
 
 function closeColorModal() {
   colorModalOverlay.classList.add('hidden');
   editingColorIndex = null;
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', syncColorModal);
-    window.visualViewport.removeEventListener('scroll', syncColorModal);
-  }
-  ['top','left','height','width'].forEach(p => colorModalOverlay.style[p] = '');
 }
 
 function deleteColor(index) {
