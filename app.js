@@ -1,19 +1,23 @@
 'use strict';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.5.0';
 
-const PRINTERS = [
-  { id: 'x2d', name: 'X2D', slotOrder: [1, 2, 3, 4], amsLite: false },
-  { id: 'p2s', name: 'P2S', slotOrder: [1, 2, 3, 4], amsLite: false },
-  { id: 'a1',  name: 'A1',  slotOrder: [1, 4, 2, 3], amsLite: true  },
+const DEFAULT_PRINTERS = [
+  { id: 'x2d', name: 'X2D', amsType: 'ams'      },
+  { id: 'p2s', name: 'P2S', amsType: 'ams'      },
+  { id: 'a1',  name: 'A1',  amsType: 'ams-lite' },
 ];
 
-const SPOOL_TYPES = [
-  { value: 165, label: 'Elegoo Cardboard (165g empty)' },
-  { value: 256, label: 'Bambu Plastic (256g empty)' },
-];
+function getSlotOrder(amsType) {
+  if (amsType === 'ams-lite') return [1, 4, 2, 3];
+  if (amsType === 'single')   return [1];
+  return [1, 2, 3, 4];
+}
 
-const DEFAULT_SPOOL_WEIGHT = 165;
+const DEFAULT_SPOOL_TYPES = [
+  { id: 'elegoo-cardboard', name: 'Elegoo Cardboard', tare: 165 },
+  { id: 'bambu-plastic',    name: 'Bambu Plastic',    tare: 256 },
+];
 const STORAGE_KEY = 'filament-tracker-data';
 const LOW_GRAM_THRESHOLD = 100;
 
@@ -21,23 +25,57 @@ const LOW_GRAM_THRESHOLD = 100;
 
 let state = loadState();
 
-function defaultState() {
-  const data = {};
-  for (const p of PRINTERS) {
-    data[p.id] = {};
-    for (let slot = 1; slot <= 4; slot++) {
-      data[p.id][slot] = { grams: null, spoolWeight: DEFAULT_SPOOL_WEIGHT };
-    }
+function defaultSpoolTypes() {
+  return DEFAULT_SPOOL_TYPES.map(t => ({ ...t }));
+}
+
+function defaultPrinterList() {
+  return DEFAULT_PRINTERS.map(p => ({ ...p }));
+}
+
+function initSlotData(printerId) {
+  const slots = {};
+  for (let s = 1; s <= 4; s++) {
+    slots[s] = { grams: null, spoolWeight: DEFAULT_SPOOL_TYPES[0].tare };
   }
-  return { printers: data, lastExported: null };
+  return slots;
+}
+
+function defaultState() {
+  const printers = {};
+  for (const p of DEFAULT_PRINTERS) {
+    printers[p.id] = initSlotData(p.id);
+  }
+  return {
+    printers,
+    printerList: defaultPrinterList(),
+    spoolTypes: defaultSpoolTypes(),
+    lastExported: null,
+  };
 }
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (!parsed.spoolTypes)  parsed.spoolTypes  = defaultSpoolTypes();
+      if (!parsed.printerList) parsed.printerList = defaultPrinterList();
+      // Migrate: amsLite boolean → amsType string
+      for (const p of parsed.printerList) {
+        if (!p.amsType) p.amsType = p.amsLite ? 'ams-lite' : 'ams';
+      }
+      return parsed;
+    }
   } catch (_) {}
   return defaultState();
+}
+
+function getPrinters() {
+  return (state.printerList ?? defaultPrinterList()).map(p => ({
+    ...p,
+    slotOrder: getSlotOrder(p.amsType ?? (p.amsLite ? 'ams-lite' : 'ams')),
+  }));
 }
 
 function saveState() {
@@ -57,6 +95,8 @@ const btnImport    = document.getElementById('btn-import');
 const importInput  = document.getElementById('import-file-input');
 const lastExportedDisplay = document.getElementById('last-exported-display');
 const appVersionEl = document.getElementById('app-version');
+const btnHomeSave  = document.getElementById('btn-home-save');
+const homeLastSaved = document.getElementById('home-last-saved');
 
 const modalOverlay  = document.getElementById('modal-overlay');
 const modalTitle    = document.getElementById('modal-title');
@@ -79,6 +119,28 @@ const inputAdjustGrams  = document.getElementById('input-adjust-grams');
 const adjustCurrentGrams = document.getElementById('adjust-current-grams');
 const adjustAfterValue  = document.getElementById('adjust-after-value');
 const adjustInputLabel  = document.getElementById('adjust-input-label');
+
+// Printer modal refs
+const printerModalOverlay  = document.getElementById('printer-modal-overlay');
+const printerModalTitle    = document.getElementById('printer-modal-title');
+const inputPrinterName     = document.getElementById('input-printer-name');
+const btnAmsStandard       = document.getElementById('btn-ams-standard');
+const btnAmsLite           = document.getElementById('btn-ams-lite');
+const btnAmsSingle         = document.getElementById('btn-ams-single');
+const btnPrinterCancel     = document.getElementById('btn-printer-cancel');
+const btnPrinterSave       = document.getElementById('btn-printer-save');
+const printerListSettings  = document.getElementById('printer-list-settings');
+const btnAddPrinter        = document.getElementById('btn-add-printer');
+
+// Spool type modal refs
+const spoolModalOverlay = document.getElementById('spool-modal-overlay');
+const spoolModalTitle   = document.getElementById('spool-modal-title');
+const inputSpoolName    = document.getElementById('input-spool-name');
+const inputSpoolTare    = document.getElementById('input-spool-tare');
+const btnSpoolCancel    = document.getElementById('btn-spool-cancel');
+const btnSpoolSave      = document.getElementById('btn-spool-save');
+const spoolTypesList    = document.getElementById('spool-types-list');
+const btnAddSpool       = document.getElementById('btn-add-spool');
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -117,20 +179,22 @@ function formatRelativeTime(isoString) {
 
 function renderHome() {
   printerList.innerHTML = '';
-  for (const printer of PRINTERS) {
+  for (const printer of getPrinters()) {
     const card = document.createElement('div');
     card.className = 'printer-card';
 
     const header = document.createElement('div');
     header.className = 'printer-card-header';
-    const subtitle = printer.amsLite ? '<span class="printer-subtitle">AMS Lite</span>' : '';
+    const subtitleText = { 'ams-lite': 'AMS Lite', 'single': 'Single Spool' }[printer.amsType] ?? '';
+    const subtitle = subtitleText ? `<span class="printer-subtitle">${subtitleText}</span>` : '';
     header.innerHTML = `<span class="printer-name">${printer.name}</span>${subtitle}`;
 
     const slotsDiv = document.createElement('div');
-    slotsDiv.className = 'printer-slots' + (printer.amsLite ? ' ams-lite' : '');
+    const amsClass = printer.amsType === 'ams-lite' ? ' ams-lite' : printer.amsType === 'single' ? ' single' : '';
+    slotsDiv.className = 'printer-slots' + amsClass;
 
     for (const slot of printer.slotOrder) {
-      const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: DEFAULT_SPOOL_WEIGHT };
+      const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: DEFAULT_SPOOL_TYPES[0].tare };
       const grams = slotData.grams;
       const isLow = grams !== null && grams < LOW_GRAM_THRESHOLD;
       const timeLabel = formatRelativeTime(slotData.updatedAt ?? null);
@@ -234,18 +298,37 @@ btnSubtract.addEventListener('click', () => setAdjustMode('subtract'));
 btnAdd.addEventListener('click',      () => setAdjustMode('add'));
 inputAdjustGrams.addEventListener('input', updateAdjustPreview);
 
+// ── Spool select population ────────────────────────────────────────────────
+
+function populateSpoolSelect(preserveValue) {
+  const types = state.spoolTypes ?? defaultSpoolTypes();
+  const prev  = preserveValue ?? selectSpool.value;
+  selectSpool.innerHTML = '';
+  for (const t of types) {
+    const opt = document.createElement('option');
+    opt.value = String(t.tare);
+    opt.textContent = `${t.name} (${t.tare}g empty)`;
+    selectSpool.appendChild(opt);
+  }
+  selectSpool.value = prev;
+  // Fall back to first option if saved value no longer exists
+  if (!selectSpool.value && types.length > 0) {
+    selectSpool.value = String(types[0].tare);
+  }
+}
+
 // ── Open / Close ───────────────────────────────────────────────────────────
 
 function openModal(printer, slot) {
   activeEdit = { printerId: printer.id, slot };
-  const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: DEFAULT_SPOOL_WEIGHT };
+  const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: DEFAULT_SPOOL_TYPES[0].tare };
 
   modalTitle.textContent = `Update Slot ${slot} — ${printer.name}`;
 
-  // Weigh tab setup
-  selectSpool.value = String(slotData.spoolWeight ?? DEFAULT_SPOOL_WEIGHT);
+  // Weigh tab setup — populate dropdown then select saved spool
+  populateSpoolSelect(String(slotData.spoolWeight ?? DEFAULT_SPOOL_TYPES[0].tare));
   inputWeight.value = slotData.grams !== null
-    ? String(slotData.grams + (slotData.spoolWeight ?? DEFAULT_SPOOL_WEIGHT))
+    ? String(slotData.grams + (slotData.spoolWeight ?? DEFAULT_SPOOL_TYPES[0].tare))
     : '';
   updateRemainingDisplay();
 
@@ -370,36 +453,40 @@ document.addEventListener('keydown', (e) => {
 function renderSettings() {
   appVersionEl.textContent = 'v' + APP_VERSION;
   updateLastExportedDisplay();
+  renderPrinterList();
+  renderSpoolTypes();
 }
 
 function updateLastExportedDisplay() {
-  if (state.lastExported) {
-    const d = new Date(state.lastExported);
-    lastExportedDisplay.textContent = d.toLocaleString();
-  } else {
-    lastExportedDisplay.textContent = 'Never';
-  }
+  const text = state.lastExported
+    ? new Date(state.lastExported).toLocaleString()
+    : 'Never';
+  lastExportedDisplay.textContent = text;
+  homeLastSaved.textContent = state.lastExported
+    ? 'Last saved: ' + formatRelativeTime(state.lastExported)
+    : 'Not yet saved — tap to back up';
 }
 
-// ── Export ─────────────────────────────────────────────────────────────────
+// ── Export / Save ──────────────────────────────────────────────────────────
 
-btnExport.addEventListener('click', () => {
+function doSave() {
   state.lastExported = new Date().toISOString();
   saveState();
   updateLastExportedDisplay();
 
-  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const filename = `filament-tracker-${date}.json`;
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'filament-tracker.json'; // fixed name so each save overwrites the last
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-});
+}
+
+btnExport.addEventListener('click', doSave);
+btnHomeSave.addEventListener('click', doSave);
 
 // ── Import ─────────────────────────────────────────────────────────────────
 
@@ -425,7 +512,10 @@ importInput.addEventListener('change', () => {
 
       if (confirmed) {
         state = parsed;
+        if (!state.spoolTypes)  state.spoolTypes  = defaultSpoolTypes();
+        if (!state.printerList) state.printerList = defaultPrinterList();
         saveState();
+        populateSpoolSelect();
         renderHome();
         renderSettings();
         alert('Data imported successfully.');
@@ -438,6 +528,305 @@ importInput.addEventListener('change', () => {
   reader.readAsText(file);
 });
 
+// ── Printer management ─────────────────────────────────────────────────────
+
+let editingPrinterIndex = null; // null = new, number = editing
+let selectedAmsType = 'ams'; // 'ams' | 'ams-lite' | 'single'
+
+function renderPrinterList() {
+  const printers = state.printerList ?? defaultPrinterList();
+  printerListSettings.innerHTML = '';
+
+  for (let i = 0; i < printers.length; i++) {
+    const p = printers[i];
+    const row = document.createElement('div');
+    row.className = 'spool-type-row';
+
+    const amsLabel = {
+      'ams':      'AMS — 4 slots in a row',
+      'ams-lite': 'AMS Lite — 2×2 grid (1 4 / 2 3)',
+      'single':   'Single Spool — 1 slot',
+    }[p.amsType ?? (p.amsLite ? 'ams-lite' : 'ams')] ?? 'AMS';
+
+    const info = document.createElement('div');
+    info.className = 'spool-type-info';
+    info.innerHTML = `
+      <span class="spool-type-name">${p.name}</span>
+      <span class="spool-type-tare">${amsLabel}</span>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'spool-type-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'spool-action-btn edit-btn';
+    editBtn.textContent = 'Edit';
+    editBtn.setAttribute('aria-label', `Edit ${p.name}`);
+    editBtn.addEventListener('click', () => openPrinterModal(i));
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'spool-action-btn delete-btn';
+    delBtn.textContent = 'Delete';
+    delBtn.setAttribute('aria-label', `Delete ${p.name}`);
+    delBtn.disabled = printers.length <= 1;
+    delBtn.addEventListener('click', () => deletePrinter(i));
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(info);
+    row.appendChild(actions);
+    printerListSettings.appendChild(row);
+  }
+}
+
+function setAmsType(type) {
+  selectedAmsType = type;
+  btnAmsStandard.classList.toggle('active', type === 'ams');
+  btnAmsLite.classList.toggle('active',     type === 'ams-lite');
+  btnAmsSingle.classList.toggle('active',   type === 'single');
+  btnAmsStandard.setAttribute('aria-pressed', type === 'ams');
+  btnAmsLite.setAttribute('aria-pressed',     type === 'ams-lite');
+  btnAmsSingle.setAttribute('aria-pressed',   type === 'single');
+}
+
+function openPrinterModal(index = null) {
+  editingPrinterIndex = index;
+  const printers = state.printerList ?? defaultPrinterList();
+
+  if (index !== null) {
+    printerModalTitle.textContent = 'Edit Printer';
+    inputPrinterName.value = printers[index].name;
+    setAmsType(printers[index].amsType ?? (printers[index].amsLite ? 'ams-lite' : 'ams'));
+  } else {
+    printerModalTitle.textContent = 'Add Printer';
+    inputPrinterName.value = '';
+    setAmsType('ams');
+  }
+
+  printerModalOverlay.classList.remove('hidden');
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncPrinterModal);
+    window.visualViewport.addEventListener('scroll', syncPrinterModal);
+    syncPrinterModal();
+  }
+
+  setTimeout(() => inputPrinterName.focus(), 80);
+}
+
+function syncPrinterModal() {
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+  printerModalOverlay.style.top    = vv.offsetTop + 'px';
+  printerModalOverlay.style.left   = vv.offsetLeft + 'px';
+  printerModalOverlay.style.height = vv.height + 'px';
+  printerModalOverlay.style.width  = vv.width + 'px';
+}
+
+function closePrinterModal() {
+  printerModalOverlay.classList.add('hidden');
+  editingPrinterIndex = null;
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', syncPrinterModal);
+    window.visualViewport.removeEventListener('scroll', syncPrinterModal);
+  }
+  ['top','left','height','width'].forEach(p => printerModalOverlay.style[p] = '');
+}
+
+function deletePrinter(index) {
+  const printers = state.printerList ?? defaultPrinterList();
+  if (printers.length <= 1) return;
+  const p = printers[index];
+  if (!confirm(`Delete "${p.name}"?\n\nAll filament data recorded for this printer will be permanently removed.`)) return;
+  delete state.printers[p.id];
+  printers.splice(index, 1);
+  saveState();
+  renderPrinterList();
+  renderHome();
+}
+
+btnAddPrinter.addEventListener('click',   () => openPrinterModal(null));
+btnPrinterCancel.addEventListener('click', closePrinterModal);
+btnAmsStandard.addEventListener('click',  () => setAmsType('ams'));
+btnAmsLite.addEventListener('click',      () => setAmsType('ams-lite'));
+btnAmsSingle.addEventListener('click',    () => setAmsType('single'));
+
+printerModalOverlay.addEventListener('click', (e) => {
+  if (e.target === printerModalOverlay) closePrinterModal();
+});
+
+btnPrinterSave.addEventListener('click', () => {
+  const name = inputPrinterName.value.trim();
+
+  if (!name) {
+    inputPrinterName.focus();
+    inputPrinterName.style.borderColor = 'var(--color-danger)';
+    setTimeout(() => { inputPrinterName.style.borderColor = ''; }, 1000);
+    return;
+  }
+
+  if (!state.printerList) state.printerList = defaultPrinterList();
+
+  if (editingPrinterIndex !== null) {
+    state.printerList[editingPrinterIndex] = {
+      ...state.printerList[editingPrinterIndex],
+      name,
+      amsType: selectedAmsType,
+    };
+  } else {
+    const newId = `printer-${Date.now()}`;
+    state.printerList.push({ id: newId, name, amsType: selectedAmsType });
+    state.printers[newId] = initSlotData(newId);
+  }
+
+  saveState();
+  renderPrinterList();
+  renderHome();
+  closePrinterModal();
+});
+
+// ── Spool type management ──────────────────────────────────────────────────
+
+let editingSpoolIndex = null; // null = new, number = editing existing
+
+function renderSpoolTypes() {
+  const types = state.spoolTypes ?? defaultSpoolTypes();
+  spoolTypesList.innerHTML = '';
+
+  for (let i = 0; i < types.length; i++) {
+    const t = types[i];
+    const row = document.createElement('div');
+    row.className = 'spool-type-row';
+
+    const info = document.createElement('div');
+    info.className = 'spool-type-info';
+    info.innerHTML = `
+      <span class="spool-type-name">${t.name}</span>
+      <span class="spool-type-tare">${t.tare}g empty spool weight</span>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'spool-type-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'spool-action-btn edit-btn';
+    editBtn.textContent = 'Edit';
+    editBtn.setAttribute('aria-label', `Edit ${t.name}`);
+    editBtn.addEventListener('click', () => openSpoolModal(i));
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'spool-action-btn delete-btn';
+    delBtn.textContent = 'Delete';
+    delBtn.setAttribute('aria-label', `Delete ${t.name}`);
+    delBtn.disabled = types.length <= 1;
+    delBtn.addEventListener('click', () => deleteSpoolType(i));
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(info);
+    row.appendChild(actions);
+    spoolTypesList.appendChild(row);
+  }
+}
+
+function openSpoolModal(index = null) {
+  editingSpoolIndex = index;
+  const types = state.spoolTypes ?? defaultSpoolTypes();
+
+  if (index !== null) {
+    spoolModalTitle.textContent = 'Edit Spool Type';
+    inputSpoolName.value = types[index].name;
+    inputSpoolTare.value = String(types[index].tare);
+  } else {
+    spoolModalTitle.textContent = 'Add Spool Type';
+    inputSpoolName.value = '';
+    inputSpoolTare.value = '';
+  }
+
+  spoolModalOverlay.classList.remove('hidden');
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncSpoolModal);
+    window.visualViewport.addEventListener('scroll', syncSpoolModal);
+    syncSpoolModal();
+  }
+
+  setTimeout(() => inputSpoolName.focus(), 80);
+}
+
+function syncSpoolModal() {
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+  spoolModalOverlay.style.top    = vv.offsetTop + 'px';
+  spoolModalOverlay.style.left   = vv.offsetLeft + 'px';
+  spoolModalOverlay.style.height = vv.height + 'px';
+  spoolModalOverlay.style.width  = vv.width + 'px';
+}
+
+function closeSpoolModal() {
+  spoolModalOverlay.classList.add('hidden');
+  editingSpoolIndex = null;
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', syncSpoolModal);
+    window.visualViewport.removeEventListener('scroll', syncSpoolModal);
+  }
+  ['top','left','height','width'].forEach(p => spoolModalOverlay.style[p] = '');
+}
+
+function deleteSpoolType(index) {
+  const types = state.spoolTypes ?? defaultSpoolTypes();
+  if (types.length <= 1) return;
+  const name = types[index].name;
+  if (!confirm(`Delete "${name}"?\n\nThis won't affect filament already recorded — those weights are already saved.`)) return;
+  types.splice(index, 1);
+  saveState();
+  renderSpoolTypes();
+  populateSpoolSelect();
+}
+
+btnAddSpool.addEventListener('click', () => openSpoolModal(null));
+btnSpoolCancel.addEventListener('click', closeSpoolModal);
+
+spoolModalOverlay.addEventListener('click', (e) => {
+  if (e.target === spoolModalOverlay) closeSpoolModal();
+});
+
+btnSpoolSave.addEventListener('click', () => {
+  const name = inputSpoolName.value.trim();
+  const tare = parseInt(inputSpoolTare.value, 10);
+
+  if (!name) {
+    inputSpoolName.focus();
+    inputSpoolName.style.borderColor = 'var(--color-danger)';
+    setTimeout(() => { inputSpoolName.style.borderColor = ''; }, 1000);
+    return;
+  }
+
+  if (!inputSpoolTare.value.trim() || isNaN(tare) || tare < 0) {
+    inputSpoolTare.focus();
+    inputSpoolTare.style.borderColor = 'var(--color-danger)';
+    setTimeout(() => { inputSpoolTare.style.borderColor = ''; }, 1000);
+    return;
+  }
+
+  if (!state.spoolTypes) state.spoolTypes = defaultSpoolTypes();
+
+  if (editingSpoolIndex !== null) {
+    state.spoolTypes[editingSpoolIndex] = {
+      ...state.spoolTypes[editingSpoolIndex],
+      name,
+      tare,
+    };
+  } else {
+    state.spoolTypes.push({ id: `custom-${Date.now()}`, name, tare });
+  }
+
+  saveState();
+  renderSpoolTypes();
+  populateSpoolSelect();
+  closeSpoolModal();
+});
+
 // ── Service Worker ─────────────────────────────────────────────────────────
 
 if ('serviceWorker' in navigator) {
@@ -446,4 +835,6 @@ if ('serviceWorker' in navigator) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
+populateSpoolSelect();
+updateLastExportedDisplay();
 renderHome();
