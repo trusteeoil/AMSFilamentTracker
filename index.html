@@ -77,37 +77,91 @@
   <!-- EDIT MODAL -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal">
-      <h2 id="modal-title">Update Slot</h2>
 
-      <label class="field-label" for="input-weight">
-        Total weight on scale (spool + filament) in grams
-      </label>
-      <input
-        type="number"
-        id="input-weight"
-        class="text-input"
-        placeholder="e.g. 310"
-        min="0"
-        step="1"
-      />
-
-      <label class="field-label" for="select-spool">
-        Spool type (used to calculate filament remaining)
-      </label>
-      <select id="select-spool" class="select-input">
-        <option value="165">Elegoo Cardboard (165g empty)</option>
-        <option value="256">Bambu Plastic (256g empty)</option>
-      </select>
-
-      <div class="filament-remaining-display">
-        <span class="filament-remaining-label">Filament remaining:</span>
-        <span id="filament-remaining-value" class="filament-remaining-value">—</span>
+      <!-- Title -->
+      <div class="modal-header">
+        <h2 id="modal-title">Update Slot</h2>
       </div>
 
+      <!-- Tab bar -->
+      <div class="modal-tabs" role="tablist" aria-label="How to update this slot">
+        <button class="modal-tab active" id="tab-weigh" role="tab" aria-selected="true" aria-controls="panel-weigh">
+          Weigh Spool
+        </button>
+        <button class="modal-tab" id="tab-adjust" role="tab" aria-selected="false" aria-controls="panel-adjust">
+          Add / Subtract
+        </button>
+      </div>
+
+      <!-- Scrollable content -->
+      <div class="modal-body">
+
+        <!-- PANEL: Weigh (default) -->
+        <div id="panel-weigh" class="modal-panel" role="tabpanel" aria-labelledby="tab-weigh">
+          <label class="field-label" for="input-weight">
+            Total weight on scale (spool + filament) in grams
+          </label>
+          <input
+            type="number"
+            id="input-weight"
+            class="text-input"
+            placeholder="e.g. 310"
+            min="0"
+            step="1"
+          />
+
+          <label class="field-label" for="select-spool">
+            Spool type (used to calculate filament remaining)
+          </label>
+          <select id="select-spool" class="select-input">
+            <option value="165">Elegoo Cardboard (165g empty)</option>
+            <option value="256">Bambu Plastic (256g empty)</option>
+          </select>
+
+          <div class="filament-remaining-display">
+            <span class="filament-remaining-label">Filament remaining:</span>
+            <span id="filament-remaining-value" class="filament-remaining-value">—</span>
+          </div>
+        </div>
+
+        <!-- PANEL: Adjust -->
+        <div id="panel-adjust" class="modal-panel hidden" role="tabpanel" aria-labelledby="tab-adjust">
+          <div class="adjust-current-row">
+            <span class="adjust-current-label">Current filament on record</span>
+            <span id="adjust-current-grams" class="adjust-current-value">—</span>
+          </div>
+
+          <div class="adjust-mode-row">
+            <button id="btn-subtract" class="adjust-mode-btn active" aria-pressed="true">− Subtract</button>
+            <button id="btn-add" class="adjust-mode-btn" aria-pressed="false">+ Add</button>
+          </div>
+
+          <label class="field-label" for="input-adjust-grams" id="adjust-input-label">
+            Grams to subtract
+          </label>
+          <input
+            type="number"
+            id="input-adjust-grams"
+            class="text-input"
+            placeholder="e.g. 50"
+            min="0"
+            step="1"
+          />
+
+          <div class="filament-remaining-display">
+            <span class="filament-remaining-label">After adjustment:</span>
+            <span id="adjust-after-value" class="filament-remaining-value">—</span>
+          </div>
+        </div>
+
+      </div><!-- /.modal-body -->
+
+      <!-- Always-visible buttons, never hidden by keyboard -->
       <div class="modal-buttons">
         <button id="btn-modal-cancel" class="modal-btn cancel-btn">Cancel</button>
         <button id="btn-modal-ok" class="modal-btn ok-btn">OK — Save</button>
       </div>
+
     </div>
   </div>
 

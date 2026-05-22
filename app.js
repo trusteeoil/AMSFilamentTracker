@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 
 const PRINTERS = [
   { id: 'x2d', name: 'X2D', slotOrder: [1, 2, 3, 4], amsLite: false },
@@ -65,6 +65,20 @@ const selectSpool   = document.getElementById('select-spool');
 const remainingVal  = document.getElementById('filament-remaining-value');
 const btnModalOk    = document.getElementById('btn-modal-ok');
 const btnModalCancel = document.getElementById('btn-modal-cancel');
+
+// Tab refs
+const tabWeigh   = document.getElementById('tab-weigh');
+const tabAdjust  = document.getElementById('tab-adjust');
+const panelWeigh  = document.getElementById('panel-weigh');
+const panelAdjust = document.getElementById('panel-adjust');
+
+// Adjust panel refs
+const btnSubtract       = document.getElementById('btn-subtract');
+const btnAdd            = document.getElementById('btn-add');
+const inputAdjustGrams  = document.getElementById('input-adjust-grams');
+const adjustCurrentGrams = document.getElementById('adjust-current-grams');
+const adjustAfterValue  = document.getElementById('adjust-after-value');
+const adjustInputLabel  = document.getElementById('adjust-input-label');
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -145,23 +159,111 @@ function renderHome() {
 // ── Modal ──────────────────────────────────────────────────────────────────
 
 let activeEdit = null; // { printerId, slot }
+let activeTab  = 'weigh';   // 'weigh' | 'adjust'
+let adjustMode = 'subtract'; // 'subtract' | 'add'
+
+// ── Visual Viewport: keep modal above the keyboard ─────────────────────────
+
+function syncModalToViewport() {
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+  modalOverlay.style.top    = vv.offsetTop + 'px';
+  modalOverlay.style.left   = vv.offsetLeft + 'px';
+  modalOverlay.style.height = vv.height + 'px';
+  modalOverlay.style.width  = vv.width + 'px';
+}
+
+function resetModalViewport() {
+  ['top','left','height','width'].forEach(p => modalOverlay.style[p] = '');
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+
+function switchTab(tab) {
+  activeTab = tab;
+  const isWeigh = tab === 'weigh';
+
+  tabWeigh.classList.toggle('active', isWeigh);
+  tabAdjust.classList.toggle('active', !isWeigh);
+  tabWeigh.setAttribute('aria-selected', isWeigh);
+  tabAdjust.setAttribute('aria-selected', !isWeigh);
+
+  panelWeigh.classList.toggle('hidden', !isWeigh);
+  panelAdjust.classList.toggle('hidden', isWeigh);
+
+  if (!isWeigh) updateAdjustPreview();
+}
+
+tabWeigh.addEventListener('click',  () => { switchTab('weigh');  setTimeout(() => inputWeight.focus(), 60); });
+tabAdjust.addEventListener('click', () => { switchTab('adjust'); setTimeout(() => inputAdjustGrams.focus(), 60); });
+
+// ── Adjust panel ───────────────────────────────────────────────────────────
+
+function setAdjustMode(mode) {
+  adjustMode = mode;
+  const isSub = mode === 'subtract';
+  btnSubtract.classList.toggle('active', isSub);
+  btnAdd.classList.toggle('active', !isSub);
+  btnSubtract.setAttribute('aria-pressed', isSub);
+  btnAdd.setAttribute('aria-pressed', !isSub);
+  adjustInputLabel.textContent = isSub ? 'Grams to subtract' : 'Grams to add';
+  updateAdjustPreview();
+}
+
+function updateAdjustPreview() {
+  const slotData = activeEdit
+    ? (state.printers[activeEdit.printerId]?.[activeEdit.slot] ?? null)
+    : null;
+  const current = slotData?.grams ?? null;
+
+  adjustCurrentGrams.textContent = current !== null ? current + 'g' : '—';
+
+  const delta = parseFloat(inputAdjustGrams.value);
+  if (current === null || !inputAdjustGrams.value.trim() || isNaN(delta)) {
+    adjustAfterValue.textContent = '—';
+    adjustAfterValue.className = 'filament-remaining-value invalid';
+    return;
+  }
+
+  const after = adjustMode === 'subtract' ? current - delta : current + delta;
+  adjustAfterValue.textContent = after + 'g';
+  adjustAfterValue.className = 'filament-remaining-value' + (after < LOW_GRAM_THRESHOLD ? ' low' : '');
+}
+
+btnSubtract.addEventListener('click', () => setAdjustMode('subtract'));
+btnAdd.addEventListener('click',      () => setAdjustMode('add'));
+inputAdjustGrams.addEventListener('input', updateAdjustPreview);
+
+// ── Open / Close ───────────────────────────────────────────────────────────
 
 function openModal(printer, slot) {
   activeEdit = { printerId: printer.id, slot };
   const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: DEFAULT_SPOOL_WEIGHT };
 
   modalTitle.textContent = `Update Slot ${slot} — ${printer.name}`;
-  selectSpool.value = String(slotData.spoolWeight ?? DEFAULT_SPOOL_WEIGHT);
 
-  // If grams are stored, back-calculate total weight to pre-fill
-  if (slotData.grams !== null && slotData.grams !== undefined) {
-    inputWeight.value = String(slotData.grams + (slotData.spoolWeight ?? DEFAULT_SPOOL_WEIGHT));
-  } else {
-    inputWeight.value = '';
+  // Weigh tab setup
+  selectSpool.value = String(slotData.spoolWeight ?? DEFAULT_SPOOL_WEIGHT);
+  inputWeight.value = slotData.grams !== null
+    ? String(slotData.grams + (slotData.spoolWeight ?? DEFAULT_SPOOL_WEIGHT))
+    : '';
+  updateRemainingDisplay();
+
+  // Adjust tab setup
+  inputAdjustGrams.value = '';
+  setAdjustMode('subtract');
+
+  // Always open on the Weigh tab
+  switchTab('weigh');
+
+  modalOverlay.classList.remove('hidden');
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncModalToViewport);
+    window.visualViewport.addEventListener('scroll', syncModalToViewport);
+    syncModalToViewport();
   }
 
-  updateRemainingDisplay();
-  modalOverlay.classList.remove('hidden');
   setTimeout(() => inputWeight.focus(), 80);
 }
 
@@ -169,10 +271,19 @@ function closeModal() {
   modalOverlay.classList.add('hidden');
   activeEdit = null;
   inputWeight.value = '';
+  inputAdjustGrams.value = '';
+
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', syncModalToViewport);
+    window.visualViewport.removeEventListener('scroll', syncModalToViewport);
+  }
+  resetModalViewport();
 }
 
+// ── Weigh tab live calc ────────────────────────────────────────────────────
+
 function updateRemainingDisplay() {
-  const total = parseFloat(inputWeight.value);
+  const total  = parseFloat(inputWeight.value);
   const spoolW = parseInt(selectSpool.value, 10);
 
   if (!inputWeight.value.trim() || isNaN(total)) {
@@ -189,24 +300,53 @@ function updateRemainingDisplay() {
 inputWeight.addEventListener('input', updateRemainingDisplay);
 selectSpool.addEventListener('change', updateRemainingDisplay);
 
+// ── Save ───────────────────────────────────────────────────────────────────
+
 btnModalOk.addEventListener('click', () => {
   if (!activeEdit) return;
-  const total = parseFloat(inputWeight.value);
-  const spoolW = parseInt(selectSpool.value, 10);
 
-  if (!inputWeight.value.trim() || isNaN(total)) {
-    inputWeight.focus();
-    inputWeight.style.borderColor = 'var(--color-danger)';
-    setTimeout(() => { inputWeight.style.borderColor = ''; }, 1000);
-    return;
+  if (activeTab === 'weigh') {
+    const total  = parseFloat(inputWeight.value);
+    const spoolW = parseInt(selectSpool.value, 10);
+
+    if (!inputWeight.value.trim() || isNaN(total)) {
+      inputWeight.focus();
+      inputWeight.style.borderColor = 'var(--color-danger)';
+      setTimeout(() => { inputWeight.style.borderColor = ''; }, 1000);
+      return;
+    }
+
+    state.printers[activeEdit.printerId][activeEdit.slot] = {
+      grams: Math.round(total - spoolW),
+      spoolWeight: spoolW,
+      updatedAt: new Date().toISOString(),
+    };
+
+  } else {
+    const slotData = state.printers[activeEdit.printerId]?.[activeEdit.slot] ?? null;
+    const current  = slotData?.grams ?? null;
+    const delta    = parseFloat(inputAdjustGrams.value);
+
+    if (current === null) {
+      alert('No filament recorded yet for this slot. Use the "Weigh Spool" tab to set an initial weight first.');
+      return;
+    }
+
+    if (!inputAdjustGrams.value.trim() || isNaN(delta)) {
+      inputAdjustGrams.focus();
+      inputAdjustGrams.style.borderColor = 'var(--color-danger)';
+      setTimeout(() => { inputAdjustGrams.style.borderColor = ''; }, 1000);
+      return;
+    }
+
+    const after = adjustMode === 'subtract' ? current - delta : current + delta;
+    state.printers[activeEdit.printerId][activeEdit.slot] = {
+      ...slotData,
+      grams: Math.round(after),
+      updatedAt: new Date().toISOString(),
+    };
   }
 
-  const filament = Math.round(total - spoolW);
-  state.printers[activeEdit.printerId][activeEdit.slot] = {
-    grams: filament,
-    spoolWeight: spoolW,
-    updatedAt: new Date().toISOString(),
-  };
   saveState();
   renderHome();
   closeModal();
