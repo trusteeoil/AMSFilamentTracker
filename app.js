@@ -1,9 +1,9 @@
 'use strict';
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 
 const DEFAULT_PRINTERS = [
-  { id: 'x2d', name: 'X2D', amsType: 'ams'      },
+  { id: 'x2d', name: 'X2D', amsType: 'ams-hub'  },
   { id: 'p2s', name: 'P2S', amsType: 'ams'      },
   { id: 'a1',  name: 'A1',  amsType: 'ams-lite' },
 ];
@@ -11,12 +11,45 @@ const DEFAULT_PRINTERS = [
 function getSlotOrder(amsType) {
   if (amsType === 'ams-lite') return [1, 4, 2, 3];
   if (amsType === 'single')   return [1];
+  if (amsType === 'ams-hub')  return [1, 2, 3, 4, 5];
   return [1, 2, 3, 4];
 }
 
 const DEFAULT_SPOOL_TYPES = [
   { id: 'elegoo-cardboard', name: 'Elegoo Cardboard', tare: 165 },
   { id: 'bambu-plastic',    name: 'Bambu Plastic',    tare: 256 },
+];
+
+const DEFAULT_FILAMENT_TYPES = [
+  { id: 'pla',      name: 'PLA'     },
+  { id: 'pla-plus', name: 'PLA+'    },
+  { id: 'petg',     name: 'PETG'    },
+  { id: 'petg-cf',  name: 'PETG-CF' },
+  { id: 'abs',      name: 'ABS'     },
+  { id: 'asa',      name: 'ASA'     },
+  { id: 'tpu',      name: 'TPU'     },
+  { id: 'nylon',    name: 'Nylon'   },
+  { id: 'pc',       name: 'PC'      },
+  { id: 'pva',      name: 'PVA'     },
+  { id: 'support',  name: 'Support' },
+];
+
+const DEFAULT_COLORS = [
+  { id: 'black',   name: 'Black',   hex: '#1a1a1a' },
+  { id: 'white',   name: 'White',   hex: '#f0f0f0' },
+  { id: 'grey',    name: 'Grey',    hex: '#9ca3af' },
+  { id: 'silver',  name: 'Silver',  hex: '#c0c0c0' },
+  { id: 'red',     name: 'Red',     hex: '#dc2626' },
+  { id: 'orange',  name: 'Orange',  hex: '#ea580c' },
+  { id: 'yellow',  name: 'Yellow',  hex: '#ca8a04' },
+  { id: 'green',   name: 'Green',   hex: '#16a34a' },
+  { id: 'teal',    name: 'Teal',    hex: '#0d9488' },
+  { id: 'blue',    name: 'Blue',    hex: '#2563eb' },
+  { id: 'navy',    name: 'Navy',    hex: '#1e3a8a' },
+  { id: 'purple',  name: 'Purple',  hex: '#9333ea' },
+  { id: 'pink',    name: 'Pink',    hex: '#ec4899' },
+  { id: 'brown',   name: 'Brown',   hex: '#92400e' },
+  { id: 'natural', name: 'Natural', hex: '#fef3c7' },
 ];
 const STORAGE_KEY = 'filament-tracker-data';
 const LOW_GRAM_THRESHOLD = 100;
@@ -29,13 +62,21 @@ function defaultSpoolTypes() {
   return DEFAULT_SPOOL_TYPES.map(t => ({ ...t }));
 }
 
+function defaultFilamentTypes() {
+  return DEFAULT_FILAMENT_TYPES.map(t => ({ ...t }));
+}
+
+function defaultColors() {
+  return DEFAULT_COLORS.map(c => ({ ...c }));
+}
+
 function defaultPrinterList() {
   return DEFAULT_PRINTERS.map(p => ({ ...p }));
 }
 
-function initSlotData(printerId) {
+function initSlotData() {
   const slots = {};
-  for (let s = 1; s <= 4; s++) {
+  for (let s = 1; s <= 5; s++) { // 5 covers all types incl. ams-hub
     slots[s] = { grams: null, spoolWeight: DEFAULT_SPOOL_TYPES[0].tare };
   }
   return slots;
@@ -50,6 +91,8 @@ function defaultState() {
     printers,
     printerList: defaultPrinterList(),
     spoolTypes: defaultSpoolTypes(),
+    filamentTypes: defaultFilamentTypes(),
+    colors: defaultColors(),
     lastExported: null,
   };
 }
@@ -59,8 +102,10 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (!parsed.spoolTypes)  parsed.spoolTypes  = defaultSpoolTypes();
-      if (!parsed.printerList) parsed.printerList = defaultPrinterList();
+      if (!parsed.spoolTypes)    parsed.spoolTypes    = defaultSpoolTypes();
+      if (!parsed.printerList)   parsed.printerList   = defaultPrinterList();
+      if (!parsed.filamentTypes) parsed.filamentTypes = defaultFilamentTypes();
+      if (!parsed.colors)        parsed.colors        = defaultColors();
       // Migrate: amsLite boolean → amsType string
       for (const p of parsed.printerList) {
         if (!p.amsType) p.amsType = p.amsLite ? 'ams-lite' : 'ams';
@@ -95,8 +140,10 @@ const btnImport    = document.getElementById('btn-import');
 const importInput  = document.getElementById('import-file-input');
 const lastExportedDisplay = document.getElementById('last-exported-display');
 const appVersionEl = document.getElementById('app-version');
-const btnSortPrinters  = document.getElementById('btn-sort-printers');
-const btnSortSpoolTypes = document.getElementById('btn-sort-spools');
+const btnSortPrinters      = document.getElementById('btn-sort-printers');
+const btnSortSpoolTypes    = document.getElementById('btn-sort-spools');
+const btnSortFilamentTypes = document.getElementById('btn-sort-filament-types');
+const btnSortColors        = document.getElementById('btn-sort-colors');
 
 const modalOverlay  = document.getElementById('modal-overlay');
 const modalTitle    = document.getElementById('modal-title');
@@ -105,6 +152,11 @@ const selectSpool   = document.getElementById('select-spool');
 const remainingVal  = document.getElementById('filament-remaining-value');
 const btnModalOk    = document.getElementById('btn-modal-ok');
 const btnModalCancel = document.getElementById('btn-modal-cancel');
+
+// Filament type + color selects in weigh panel
+const selectFilamentType = document.getElementById('select-filament-type');
+const selectColor        = document.getElementById('select-color');
+const colorDotPreview    = document.getElementById('color-dot-preview');
 
 // Tab refs
 const tabWeigh   = document.getElementById('tab-weigh');
@@ -126,11 +178,31 @@ const printerModalTitle    = document.getElementById('printer-modal-title');
 const inputPrinterName     = document.getElementById('input-printer-name');
 const btnAmsStandard       = document.getElementById('btn-ams-standard');
 const btnAmsLite           = document.getElementById('btn-ams-lite');
+const btnAmsHub            = document.getElementById('btn-ams-hub');
 const btnAmsSingle         = document.getElementById('btn-ams-single');
 const btnPrinterCancel     = document.getElementById('btn-printer-cancel');
 const btnPrinterSave       = document.getElementById('btn-printer-save');
 const printerListSettings  = document.getElementById('printer-list-settings');
 const btnAddPrinter        = document.getElementById('btn-add-printer');
+
+// Filament type modal refs
+const filamentTypeModalOverlay = document.getElementById('filament-type-modal-overlay');
+const filamentTypeModalTitle   = document.getElementById('filament-type-modal-title');
+const inputFilamentTypeName    = document.getElementById('input-filament-type-name');
+const btnFilamentTypeCancel    = document.getElementById('btn-filament-type-cancel');
+const btnFilamentTypeSave      = document.getElementById('btn-filament-type-save');
+const filamentTypesList        = document.getElementById('filament-types-list');
+const btnAddFilamentType       = document.getElementById('btn-add-filament-type');
+
+// Color modal refs
+const colorModalOverlay  = document.getElementById('color-modal-overlay');
+const colorModalTitle    = document.getElementById('color-modal-title');
+const inputColorName     = document.getElementById('input-color-name');
+const inputColorHex      = document.getElementById('input-color-hex');
+const btnColorCancel     = document.getElementById('btn-color-cancel');
+const btnColorSave       = document.getElementById('btn-color-save');
+const colorsList         = document.getElementById('colors-list');
+const btnAddColor        = document.getElementById('btn-add-color');
 
 // Spool type modal refs
 const spoolModalOverlay = document.getElementById('spool-modal-overlay');
@@ -185,28 +257,43 @@ function renderHome() {
 
     const header = document.createElement('div');
     header.className = 'printer-card-header';
-    const subtitleText = { 'ams-lite': 'AMS Lite', 'single': 'Single Spool' }[printer.amsType] ?? '';
+    const subtitleText = { 'ams-lite': 'AMS Lite', 'single': 'Single Spool', 'ams-hub': 'AMS + Ext' }[printer.amsType] ?? '';
     const subtitle = subtitleText ? `<span class="printer-subtitle">${subtitleText}</span>` : '';
     header.innerHTML = `<span class="printer-name">${printer.name}</span>${subtitle}`;
 
     const slotsDiv = document.createElement('div');
-    const amsClass = printer.amsType === 'ams-lite' ? ' ams-lite' : printer.amsType === 'single' ? ' single' : '';
-    slotsDiv.className = 'printer-slots' + amsClass;
+    const amsClassMap = { 'ams-lite': ' ams-lite', 'single': ' single', 'ams-hub': ' ams-hub' };
+    slotsDiv.className = 'printer-slots' + (amsClassMap[printer.amsType] ?? '');
+
+    const allColors        = state.colors ?? defaultColors();
+    const allFilamentTypes = state.filamentTypes ?? defaultFilamentTypes();
 
     for (const slot of printer.slotOrder) {
       const slotData = state.printers[printer.id]?.[slot] ?? { grams: null, spoolWeight: DEFAULT_SPOOL_TYPES[0].tare };
       const grams = slotData.grams;
-      const isLow = grams !== null && grams < LOW_GRAM_THRESHOLD;
+      const isEmpty = grams === 0;
+      const isLow   = grams !== null && grams < LOW_GRAM_THRESHOLD; // 0 is also low
       const timeLabel = formatRelativeTime(slotData.updatedAt ?? null);
+
+      const colorEntry = slotData.color ? allColors.find(c => c.id === slotData.color) : null;
+      const typeEntry  = slotData.filamentType ? allFilamentTypes.find(t => t.id === slotData.filamentType) : null;
+
+      const isExternal = printer.amsType === 'ams-hub' && slot === 5;
+      const slotLabel  = isExternal ? 'External' : `Slot ${slot}`;
+      const gramsText  = isEmpty ? 'EMPTY' : (grams !== null ? grams : '—');
+      const unitText   = isEmpty ? '' : 'grams';
 
       const btn = document.createElement('button');
       btn.className = 'slot-btn';
-      btn.setAttribute('aria-label', `${printer.name} slot ${slot}: ${grams !== null ? grams + 'g' : 'not set'}${timeLabel ? ', updated ' + timeLabel : ''}. Tap to edit.`);
+      if (isExternal) btn.classList.add('slot-external');
+      btn.style.boxShadow = colorEntry ? `inset 8px 0 0 0 ${colorEntry.hex}` : '';
+      btn.setAttribute('aria-label', `${printer.name} ${slotLabel}: ${isEmpty ? 'empty' : grams !== null ? grams + 'g' : 'not set'}${typeEntry ? ', ' + typeEntry.name : ''}${colorEntry ? ', ' + colorEntry.name : ''}${timeLabel ? ', updated ' + timeLabel : ''}. Tap to edit.`);
 
       btn.innerHTML = `
-        <span class="slot-label">Slot ${slot}</span>
-        <span class="slot-grams${isLow ? ' low' : ''}">${grams !== null ? grams : '—'}</span>
-        <span class="slot-unit">grams</span>
+        <span class="slot-label">${slotLabel}</span>
+        <span class="slot-type">${typeEntry ? typeEntry.name : ''}</span>
+        <span class="slot-grams${isLow ? ' low' : ''}">${gramsText}</span>
+        <span class="slot-unit">${unitText}</span>
         <span class="slot-timestamp">${timeLabel ?? ''}</span>
       `;
 
@@ -289,8 +376,8 @@ function updateAdjustPreview() {
     return;
   }
 
-  const after = adjustMode === 'subtract' ? current - delta : current + delta;
-  adjustAfterValue.textContent = after + 'g';
+  const after = Math.max(0, adjustMode === 'subtract' ? current - delta : current + delta);
+  adjustAfterValue.textContent = after === 0 ? 'Empty' : after + 'g';
   adjustAfterValue.className = 'filament-remaining-value' + (after < LOW_GRAM_THRESHOLD ? ' low' : '');
 }
 
@@ -317,6 +404,43 @@ function populateSpoolSelect(preserveValue) {
   }
 }
 
+function populateFilamentTypeSelect(preserveValue) {
+  const types = state.filamentTypes ?? defaultFilamentTypes();
+  const prev  = preserveValue ?? selectFilamentType.value;
+  selectFilamentType.innerHTML = '<option value="">— None —</option>';
+  for (const t of types) {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name;
+    selectFilamentType.appendChild(opt);
+  }
+  selectFilamentType.value = prev;
+}
+
+function populateColorSelect(preserveValue) {
+  const colors = state.colors ?? defaultColors();
+  const prev   = preserveValue ?? selectColor.value;
+  selectColor.innerHTML = '<option value="">— None —</option>';
+  for (const c of colors) {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name;
+    selectColor.appendChild(opt);
+  }
+  selectColor.value = prev;
+  updateColorDotPreview();
+}
+
+function updateColorDotPreview() {
+  const colors = state.colors ?? defaultColors();
+  const entry  = colors.find(c => c.id === selectColor.value);
+  colorDotPreview.style.background      = entry ? entry.hex : '';
+  colorDotPreview.style.borderColor     = entry ? entry.hex : '';
+  colorDotPreview.style.opacity         = entry ? '1' : '0';
+}
+
+selectColor.addEventListener('change', updateColorDotPreview);
+
 // ── Open / Close ───────────────────────────────────────────────────────────
 
 function openModal(printer, slot) {
@@ -326,8 +450,10 @@ function openModal(printer, slot) {
 
   modalTitle.textContent = `Update Slot ${slot} — ${printer.name}`;
 
-  // Weigh tab setup — populate dropdown then select saved spool
+  // Weigh tab setup — populate dropdowns then select saved values
   populateSpoolSelect(String(slotData.spoolWeight ?? defaultTare));
+  populateFilamentTypeSelect(slotData.filamentType ?? '');
+  populateColorSelect(slotData.color ?? '');
   inputWeight.value = slotData.grams !== null
     ? String(slotData.grams + (slotData.spoolWeight ?? defaultTare))
     : '';
@@ -377,6 +503,11 @@ function updateRemainingDisplay() {
   }
 
   const filament = Math.round(total - spoolW);
+  if (filament <= 0) {
+    remainingVal.textContent = 'Empty';
+    remainingVal.className = 'filament-remaining-value low';
+    return;
+  }
   remainingVal.textContent = filament + 'g';
   remainingVal.className = 'filament-remaining-value' + (filament < LOW_GRAM_THRESHOLD ? ' low' : '');
 }
@@ -400,10 +531,14 @@ btnModalOk.addEventListener('click', () => {
       return;
     }
 
+    const existingSlot = state.printers[activeEdit.printerId]?.[activeEdit.slot] ?? {};
     state.printers[activeEdit.printerId][activeEdit.slot] = {
-      grams: Math.round(total - spoolW),
+      ...existingSlot,
+      grams: Math.max(0, Math.round(total - spoolW)),
       spoolWeight: spoolW,
       updatedAt: new Date().toISOString(),
+      filamentType: selectFilamentType.value || null,
+      color: selectColor.value || null,
     };
 
   } else {
@@ -426,7 +561,7 @@ btnModalOk.addEventListener('click', () => {
     const after = adjustMode === 'subtract' ? current - delta : current + delta;
     state.printers[activeEdit.printerId][activeEdit.slot] = {
       ...slotData,
-      grams: Math.round(after),
+      grams: Math.max(0, Math.round(after)),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -455,10 +590,14 @@ function renderSettings() {
   appVersionEl.textContent = 'v' + APP_VERSION;
   updateLastExportedDisplay();
   // Reset sort modes whenever settings page is opened
-  printerSortMode = false;
-  spoolSortMode   = false;
+  printerSortMode      = false;
+  spoolSortMode        = false;
+  filamentTypeSortMode = false;
+  colorSortMode        = false;
   renderPrinterList();
   renderSpoolTypes();
+  renderFilamentTypes();
+  renderColors();
 }
 
 function updateLastExportedDisplay() {
@@ -511,10 +650,14 @@ importInput.addEventListener('change', () => {
 
       if (confirmed) {
         state = parsed;
-        if (!state.spoolTypes)  state.spoolTypes  = defaultSpoolTypes();
-        if (!state.printerList) state.printerList = defaultPrinterList();
+        if (!state.spoolTypes)    state.spoolTypes    = defaultSpoolTypes();
+        if (!state.printerList)   state.printerList   = defaultPrinterList();
+        if (!state.filamentTypes) state.filamentTypes = defaultFilamentTypes();
+        if (!state.colors)        state.colors        = defaultColors();
         saveState();
         populateSpoolSelect();
+        populateFilamentTypeSelect();
+        populateColorSelect();
         renderHome();
         renderSettings();
         alert('Data imported successfully.');
@@ -529,10 +672,12 @@ importInput.addEventListener('change', () => {
 
 // ── Printer management ─────────────────────────────────────────────────────
 
-let editingPrinterIndex = null;
-let selectedAmsType = 'ams';
-let printerSortMode = false;
-let spoolSortMode   = false;
+let editingPrinterIndex    = null;
+let selectedAmsType        = 'ams';
+let printerSortMode        = false;
+let spoolSortMode          = false;
+let filamentTypeSortMode   = false;
+let colorSortMode          = false;
 
 function renderPrinterList() {
   const printers = state.printerList ?? defaultPrinterList();
@@ -549,6 +694,7 @@ function renderPrinterList() {
 
     const amsLabel = {
       'ams':      'AMS — 4 slots in a row',
+      'ams-hub':  'AMS + Ext — 4 slots + 1 external',
       'ams-lite': 'AMS Lite — 2×2 grid (1 4 / 2 3)',
       'single':   'Single Spool — 1 slot',
     }[p.amsType ?? (p.amsLite ? 'ams-lite' : 'ams')] ?? 'AMS';
@@ -622,9 +768,11 @@ btnSortPrinters.addEventListener('click', () => {
 function setAmsType(type) {
   selectedAmsType = type;
   btnAmsStandard.classList.toggle('active', type === 'ams');
+  btnAmsHub.classList.toggle('active',      type === 'ams-hub');
   btnAmsLite.classList.toggle('active',     type === 'ams-lite');
   btnAmsSingle.classList.toggle('active',   type === 'single');
   btnAmsStandard.setAttribute('aria-pressed', type === 'ams');
+  btnAmsHub.setAttribute('aria-pressed',      type === 'ams-hub');
   btnAmsLite.setAttribute('aria-pressed',     type === 'ams-lite');
   btnAmsSingle.setAttribute('aria-pressed',   type === 'single');
 }
@@ -688,6 +836,7 @@ function deletePrinter(index) {
 btnAddPrinter.addEventListener('click',   () => openPrinterModal(null));
 btnPrinterCancel.addEventListener('click', closePrinterModal);
 btnAmsStandard.addEventListener('click',  () => setAmsType('ams'));
+btnAmsHub.addEventListener('click',       () => setAmsType('ams-hub'));
 btnAmsLite.addEventListener('click',      () => setAmsType('ams-lite'));
 btnAmsSingle.addEventListener('click',    () => setAmsType('single'));
 
@@ -907,6 +1056,350 @@ btnSpoolSave.addEventListener('click', () => {
   closeSpoolModal();
 });
 
+// ── Filament type management ───────────────────────────────────────────────
+
+let editingFilamentTypeIndex = null;
+
+function renderFilamentTypes() {
+  const types = state.filamentTypes ?? defaultFilamentTypes();
+  filamentTypesList.innerHTML = '';
+
+  btnSortFilamentTypes.textContent = filamentTypeSortMode ? 'Done' : 'Sort';
+  btnSortFilamentTypes.classList.toggle('active', filamentTypeSortMode);
+
+  for (let i = 0; i < types.length; i++) {
+    const t = types[i];
+    const row = document.createElement('div');
+    row.className = 'spool-type-row';
+
+    const info = document.createElement('div');
+    info.className = 'spool-type-info';
+    info.innerHTML = `
+      <span class="spool-type-name">${t.name}</span>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'spool-type-actions';
+
+    if (filamentTypeSortMode) {
+      const upBtn = document.createElement('button');
+      upBtn.className = 'sort-btn';
+      upBtn.textContent = '↑';
+      upBtn.disabled = i === 0;
+      upBtn.addEventListener('click', () => moveFilamentType(i, -1));
+
+      const downBtn = document.createElement('button');
+      downBtn.className = 'sort-btn';
+      downBtn.textContent = '↓';
+      downBtn.disabled = i === types.length - 1;
+      downBtn.addEventListener('click', () => moveFilamentType(i, 1));
+
+      actions.appendChild(upBtn);
+      actions.appendChild(downBtn);
+    } else {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'spool-action-btn edit-btn';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => openFilamentTypeModal(i));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'spool-action-btn delete-btn';
+      delBtn.textContent = 'Delete';
+      delBtn.disabled = types.length <= 1;
+      delBtn.addEventListener('click', () => deleteFilamentType(i));
+
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+    }
+
+    row.appendChild(info);
+    row.appendChild(actions);
+    filamentTypesList.appendChild(row);
+  }
+}
+
+function moveFilamentType(index, direction) {
+  const types = state.filamentTypes;
+  const newIdx = index + direction;
+  if (newIdx < 0 || newIdx >= types.length) return;
+  [types[index], types[newIdx]] = [types[newIdx], types[index]];
+  saveState();
+  renderFilamentTypes();
+  populateFilamentTypeSelect();
+}
+
+btnSortFilamentTypes.addEventListener('click', () => {
+  filamentTypeSortMode = !filamentTypeSortMode;
+  renderFilamentTypes();
+});
+
+function openFilamentTypeModal(index = null) {
+  editingFilamentTypeIndex = index;
+  const types = state.filamentTypes ?? defaultFilamentTypes();
+
+  if (index !== null) {
+    filamentTypeModalTitle.textContent = 'Edit Filament Type';
+    inputFilamentTypeName.value = types[index].name;
+  } else {
+    filamentTypeModalTitle.textContent = 'Add Filament Type';
+    inputFilamentTypeName.value = '';
+  }
+
+  filamentTypeModalOverlay.classList.remove('hidden');
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncFilamentTypeModal);
+    window.visualViewport.addEventListener('scroll', syncFilamentTypeModal);
+    syncFilamentTypeModal();
+  }
+
+  setTimeout(() => inputFilamentTypeName.focus(), 80);
+}
+
+function syncFilamentTypeModal() {
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+  filamentTypeModalOverlay.style.top    = vv.offsetTop + 'px';
+  filamentTypeModalOverlay.style.left   = vv.offsetLeft + 'px';
+  filamentTypeModalOverlay.style.height = vv.height + 'px';
+  filamentTypeModalOverlay.style.width  = vv.width + 'px';
+}
+
+function closeFilamentTypeModal() {
+  filamentTypeModalOverlay.classList.add('hidden');
+  editingFilamentTypeIndex = null;
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', syncFilamentTypeModal);
+    window.visualViewport.removeEventListener('scroll', syncFilamentTypeModal);
+  }
+  ['top','left','height','width'].forEach(p => filamentTypeModalOverlay.style[p] = '');
+}
+
+function deleteFilamentType(index) {
+  const types = state.filamentTypes ?? defaultFilamentTypes();
+  if (types.length <= 1) return;
+  const name = types[index].name;
+  if (!confirm(`Delete "${name}"?\n\nSlots using this type will keep their saved data, the label will just not display.`)) return;
+  types.splice(index, 1);
+  saveState();
+  renderFilamentTypes();
+  populateFilamentTypeSelect();
+}
+
+btnAddFilamentType.addEventListener('click', () => openFilamentTypeModal(null));
+btnFilamentTypeCancel.addEventListener('click', closeFilamentTypeModal);
+
+filamentTypeModalOverlay.addEventListener('click', (e) => {
+  if (e.target === filamentTypeModalOverlay) closeFilamentTypeModal();
+});
+
+btnFilamentTypeSave.addEventListener('click', () => {
+  const name = inputFilamentTypeName.value.trim();
+
+  if (!name) {
+    inputFilamentTypeName.focus();
+    inputFilamentTypeName.style.borderColor = 'var(--color-danger)';
+    setTimeout(() => { inputFilamentTypeName.style.borderColor = ''; }, 1000);
+    return;
+  }
+
+  if (!state.filamentTypes) state.filamentTypes = defaultFilamentTypes();
+
+  if (editingFilamentTypeIndex !== null) {
+    state.filamentTypes[editingFilamentTypeIndex] = {
+      ...state.filamentTypes[editingFilamentTypeIndex],
+      name,
+    };
+  } else {
+    state.filamentTypes.push({ id: `type-${Date.now()}`, name });
+  }
+
+  saveState();
+  renderFilamentTypes();
+  populateFilamentTypeSelect();
+  closeFilamentTypeModal();
+});
+
+// ── Color management ───────────────────────────────────────────────────────
+
+let editingColorIndex = null;
+
+function renderColors() {
+  const colors = state.colors ?? defaultColors();
+  colorsList.innerHTML = '';
+
+  btnSortColors.textContent = colorSortMode ? 'Done' : 'Sort';
+  btnSortColors.classList.toggle('active', colorSortMode);
+
+  for (let i = 0; i < colors.length; i++) {
+    const c = colors[i];
+    const row = document.createElement('div');
+    row.className = 'spool-type-row';
+
+    const info = document.createElement('div');
+    info.className = 'spool-type-info';
+    const dot = document.createElement('span');
+    dot.className = 'color-dot';
+    dot.style.background = c.hex;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'spool-type-name';
+    nameSpan.style.display = 'flex';
+    nameSpan.style.alignItems = 'center';
+    nameSpan.style.gap = '8px';
+    nameSpan.appendChild(dot);
+    nameSpan.appendChild(document.createTextNode(c.name));
+
+    info.appendChild(nameSpan);
+
+    const actions = document.createElement('div');
+    actions.className = 'spool-type-actions';
+
+    if (colorSortMode) {
+      const upBtn = document.createElement('button');
+      upBtn.className = 'sort-btn';
+      upBtn.textContent = '↑';
+      upBtn.disabled = i === 0;
+      upBtn.addEventListener('click', () => moveColor(i, -1));
+
+      const downBtn = document.createElement('button');
+      downBtn.className = 'sort-btn';
+      downBtn.textContent = '↓';
+      downBtn.disabled = i === colors.length - 1;
+      downBtn.addEventListener('click', () => moveColor(i, 1));
+
+      actions.appendChild(upBtn);
+      actions.appendChild(downBtn);
+    } else {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'spool-action-btn edit-btn';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => openColorModal(i));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'spool-action-btn delete-btn';
+      delBtn.textContent = 'Delete';
+      delBtn.disabled = colors.length <= 1;
+      delBtn.addEventListener('click', () => deleteColor(i));
+
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+    }
+
+    row.appendChild(info);
+    row.appendChild(actions);
+    colorsList.appendChild(row);
+  }
+}
+
+function moveColor(index, direction) {
+  const colors = state.colors;
+  const newIdx = index + direction;
+  if (newIdx < 0 || newIdx >= colors.length) return;
+  [colors[index], colors[newIdx]] = [colors[newIdx], colors[index]];
+  saveState();
+  renderColors();
+  populateColorSelect();
+}
+
+btnSortColors.addEventListener('click', () => {
+  colorSortMode = !colorSortMode;
+  renderColors();
+});
+
+function openColorModal(index = null) {
+  editingColorIndex = index;
+  const colors = state.colors ?? defaultColors();
+
+  if (index !== null) {
+    colorModalTitle.textContent = 'Edit Color';
+    inputColorName.value = colors[index].name;
+    inputColorHex.value  = colors[index].hex;
+  } else {
+    colorModalTitle.textContent = 'Add Color';
+    inputColorName.value = '';
+    inputColorHex.value  = '#2563eb';
+  }
+
+  colorModalOverlay.classList.remove('hidden');
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncColorModal);
+    window.visualViewport.addEventListener('scroll', syncColorModal);
+    syncColorModal();
+  }
+
+  setTimeout(() => inputColorName.focus(), 80);
+}
+
+function syncColorModal() {
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+  colorModalOverlay.style.top    = vv.offsetTop + 'px';
+  colorModalOverlay.style.left   = vv.offsetLeft + 'px';
+  colorModalOverlay.style.height = vv.height + 'px';
+  colorModalOverlay.style.width  = vv.width + 'px';
+}
+
+function closeColorModal() {
+  colorModalOverlay.classList.add('hidden');
+  editingColorIndex = null;
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', syncColorModal);
+    window.visualViewport.removeEventListener('scroll', syncColorModal);
+  }
+  ['top','left','height','width'].forEach(p => colorModalOverlay.style[p] = '');
+}
+
+function deleteColor(index) {
+  const colors = state.colors ?? defaultColors();
+  if (colors.length <= 1) return;
+  const name = colors[index].name;
+  if (!confirm(`Delete "${name}"?\n\nSlots using this color will keep their saved data, the accent will just not display.`)) return;
+  colors.splice(index, 1);
+  saveState();
+  renderColors();
+  populateColorSelect();
+  renderHome();
+}
+
+btnAddColor.addEventListener('click', () => openColorModal(null));
+btnColorCancel.addEventListener('click', closeColorModal);
+
+colorModalOverlay.addEventListener('click', (e) => {
+  if (e.target === colorModalOverlay) closeColorModal();
+});
+
+btnColorSave.addEventListener('click', () => {
+  const name = inputColorName.value.trim();
+  const hex  = inputColorHex.value;
+
+  if (!name) {
+    inputColorName.focus();
+    inputColorName.style.borderColor = 'var(--color-danger)';
+    setTimeout(() => { inputColorName.style.borderColor = ''; }, 1000);
+    return;
+  }
+
+  if (!state.colors) state.colors = defaultColors();
+
+  if (editingColorIndex !== null) {
+    state.colors[editingColorIndex] = {
+      ...state.colors[editingColorIndex],
+      name,
+      hex,
+    };
+  } else {
+    state.colors.push({ id: `color-${Date.now()}`, name, hex });
+  }
+
+  saveState();
+  renderColors();
+  populateColorSelect();
+  renderHome();
+  closeColorModal();
+});
+
 // ── Service Worker ─────────────────────────────────────────────────────────
 
 if ('serviceWorker' in navigator) {
@@ -916,5 +1409,7 @@ if ('serviceWorker' in navigator) {
 // ── Init ───────────────────────────────────────────────────────────────────
 
 populateSpoolSelect();
+populateFilamentTypeSelect();
+populateColorSelect();
 updateLastExportedDisplay();
 renderHome();

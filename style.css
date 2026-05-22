@@ -119,6 +119,17 @@ html, body {
   grid-template-columns: repeat(2, 1fr);
 }
 
+.printer-slots.ams-hub {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* 5th slot (external spool) spans the full width below the main 4 */
+.printer-slots.ams-hub > .slot-btn:nth-child(5) {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  border-top: 2px dashed var(--color-border);
+}
+
 .printer-slots.single {
   grid-template-columns: 1fr;
   max-width: 180px;
@@ -147,6 +158,16 @@ html, body {
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.slot-type {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-height: 0.85em;
+  line-height: 1;
 }
 
 .slot-grams {
@@ -611,7 +632,7 @@ html, body {
 /* ── AMS type picker (printer modal) ── */
 .ams-type-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
@@ -646,6 +667,52 @@ html, body {
   line-height: 1.5;
 }
 
+
+/* ── Color dot (settings list) ── */
+.color-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.15);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* ── Color field row in modal (dot + select) ── */
+.color-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.color-dot-preview {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border);
+  flex-shrink: 0;
+  background: var(--color-bg);
+  transition: background 0.15s;
+}
+
+.color-field-row .select-input {
+  flex: 1;
+  width: auto;
+}
+
+/* ── Color picker input (Add Color modal) ── */
+.color-picker-input {
+  width: 100%;
+  height: 52px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  padding: 4px 6px;
+  background: none;
+  font-family: var(--font);
+}
+.color-picker-input:focus { outline: none; border-color: var(--color-primary); }
 
 /* ── Responsive: wider screens get card layout ── */
 @media (min-width: 640px) {
