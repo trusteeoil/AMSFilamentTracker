@@ -160,14 +160,31 @@ html, body {
   letter-spacing: 0.05em;
 }
 
-.slot-type {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: var(--color-text-muted);
+/* Type+color badge — replaces the left accent bar and plain type text */
+.slot-type-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  min-height: 0.85em;
-  line-height: 1;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Neutral dark badge when no color is assigned */
+.slot-type-badge--neutral {
+  background: #374151;
+  color: #ffffff;
+}
+
+/* Small colored swatch when color is set but no type */
+.slot-color-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 6px;
+  border-radius: 3px;
 }
 
 .slot-grams {
@@ -178,11 +195,6 @@ html, body {
 }
 
 .slot-grams.low { color: var(--color-danger); }
-
-.slot-unit {
-  font-size: 0.65rem;
-  color: var(--color-text-muted);
-}
 
 .slot-timestamp {
   font-size: 0.6rem;
@@ -713,6 +725,73 @@ html, body {
   font-family: var(--font);
 }
 .color-picker-input:focus { outline: none; border-color: var(--color-primary); }
+
+/* ── Activity log ── */
+.log-entry {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+.log-entry:last-child { border-bottom: none; }
+
+.log-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.log-entry-who {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.log-entry-time {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.log-entry-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.log-change {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-family: monospace;
+}
+
+.log-empty {
+  padding: 14px 16px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.log-entry-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.log-undo-btn {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border: 1.5px solid var(--color-primary);
+  border-radius: 6px;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-family: var(--font);
+}
+.log-undo-btn:hover  { background: #eff6ff; }
+.log-undo-btn:active { background: #dbeafe; }
 
 /* ── Responsive: wider screens get card layout ── */
 @media (min-width: 640px) {

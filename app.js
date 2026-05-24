@@ -1,12 +1,34 @@
 'use strict';
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 
 const DEFAULT_PRINTERS = [
   { id: 'x2d', name: 'X2D', amsType: 'ams-hub'  },
   { id: 'p2s', name: 'P2S', amsType: 'ams'      },
   { id: 'a1',  name: 'A1',  amsType: 'ams-lite' },
 ];
+
+// Returns '#ffffff' or '#1a1a1a' depending on which contrasts better with the given hex bg
+function getContrastColor(hex) {
+  if (!hex || hex.length < 7) return '#ffffff';
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? '#1a1a1a' : '#ffffff';
+}
+
+// Format timestamp for the activity log (includes time on all entries)
+function formatLogTime(isoString) {
+  if (!isoString) return '';
+  const then = new Date(isoString);
+  const now  = new Date();
+  const todayStart     = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart - 86400000);
+  const timeStr = then.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (then >= todayStart)     return timeStr;
+  if (then >= yesterdayStart) return `Yesterday ${timeStr}`;
+  return then.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr;
+}
 
 function getSlotOrder(amsType) {
   if (amsType === 'ams-lite') return [1, 4, 2, 3];
@@ -93,6 +115,7 @@ function defaultState() {
     spoolTypes: defaultSpoolTypes(),
     filamentTypes: defaultFilamentTypes(),
     colors: defaultColors(),
+    activityLog: [],
     lastExported: null,
   };
 }
@@ -106,6 +129,7 @@ function loadState() {
       if (!parsed.printerList)   parsed.printerList   = defaultPrinterList();
       if (!parsed.filamentTypes) parsed.filamentTypes = defaultFilamentTypes();
       if (!parsed.colors)        parsed.colors        = defaultColors();
+      if (!parsed.activityLog)   parsed.activityLog   = [];
       // Migrate: amsLite boolean → amsType string
       for (const p of parsed.printerList) {
         if (!p.amsType) p.amsType = p.amsLite ? 'ams-lite' : 'ams';
@@ -280,20 +304,28 @@ function renderHome() {
 
       const isExternal = printer.amsType === 'ams-hub' && slot === 5;
       const slotLabel  = isExternal ? 'External' : `Slot ${slot}`;
-      const gramsText  = isEmpty ? 'EMPTY' : (grams !== null ? grams : '—');
-      const unitText   = isEmpty ? '' : 'grams';
+      const gramsText  = isEmpty ? 'EMPTY' : (grams !== null ? `${grams}g` : '—');
+
+      // Type+color badge
+      let badgeHtml = '';
+      if (typeEntry && colorEntry) {
+        const textColor = getContrastColor(colorEntry.hex);
+        badgeHtml = `<span class="slot-type-badge" style="background:${colorEntry.hex};color:${textColor}">${typeEntry.name}</span>`;
+      } else if (typeEntry) {
+        badgeHtml = `<span class="slot-type-badge slot-type-badge--neutral">${typeEntry.name}</span>`;
+      } else if (colorEntry) {
+        badgeHtml = `<span class="slot-color-swatch" style="background:${colorEntry.hex}"></span>`;
+      }
 
       const btn = document.createElement('button');
       btn.className = 'slot-btn';
       if (isExternal) btn.classList.add('slot-external');
-      btn.style.boxShadow = colorEntry ? `inset 8px 0 0 0 ${colorEntry.hex}` : '';
       btn.setAttribute('aria-label', `${printer.name} ${slotLabel}: ${isEmpty ? 'empty' : grams !== null ? grams + 'g' : 'not set'}${typeEntry ? ', ' + typeEntry.name : ''}${colorEntry ? ', ' + colorEntry.name : ''}${timeLabel ? ', updated ' + timeLabel : ''}. Tap to edit.`);
 
       btn.innerHTML = `
         <span class="slot-label">${slotLabel}</span>
-        <span class="slot-type">${typeEntry ? typeEntry.name : ''}</span>
+        ${badgeHtml}
         <span class="slot-grams${isLow ? ' low' : ''}">${gramsText}</span>
-        <span class="slot-unit">${unitText}</span>
         <span class="slot-timestamp">${timeLabel ?? ''}</span>
       `;
 
@@ -506,7 +538,7 @@ btnModalOk.addEventListener('click', () => {
     }
 
     const existingSlot = state.printers[activeEdit.printerId]?.[activeEdit.slot] ?? {};
-    state.printers[activeEdit.printerId][activeEdit.slot] = {
+    const newSlotData = {
       ...existingSlot,
       grams: Math.max(0, Math.round(total - spoolW)),
       spoolWeight: spoolW,
@@ -514,6 +546,9 @@ btnModalOk.addEventListener('click', () => {
       filamentType: selectFilamentType.value || null,
       color: selectColor.value || null,
     };
+    const weigh_lines = buildLogLines(existingSlot, newSlotData);
+    if (weigh_lines.length) pushToLog(weigh_lines, existingSlot);
+    state.printers[activeEdit.printerId][activeEdit.slot] = newSlotData;
 
   } else {
     const slotData = state.printers[activeEdit.printerId]?.[activeEdit.slot] ?? null;
@@ -532,12 +567,11 @@ btnModalOk.addEventListener('click', () => {
       return;
     }
 
-    const after = adjustMode === 'subtract' ? current - delta : current + delta;
-    state.printers[activeEdit.printerId][activeEdit.slot] = {
-      ...slotData,
-      grams: Math.max(0, Math.round(after)),
-      updatedAt: new Date().toISOString(),
-    };
+    const after = Math.max(0, Math.round(adjustMode === 'subtract' ? current - delta : current + delta));
+    const adjustSlotData = { ...slotData, grams: after, updatedAt: new Date().toISOString() };
+    const adjust_lines = buildLogLines(slotData, adjustSlotData);
+    if (adjust_lines.length) pushToLog(adjust_lines, slotData);
+    state.printers[activeEdit.printerId][activeEdit.slot] = adjustSlotData;
   }
 
   saveState();
@@ -558,6 +592,143 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Activity log ───────────────────────────────────────────────────────────
+
+function buildLogLines(oldSlot, newSlot) {
+  const lines  = [];
+  const types  = state.filamentTypes ?? defaultFilamentTypes();
+  const colors = state.colors        ?? defaultColors();
+  const spools = state.spoolTypes    ?? defaultSpoolTypes();
+
+  const typeName  = id   => id   ? (types.find(t => t.id === id)?.name          ?? id)          : '—';
+  const colorName = id   => id   ? (colors.find(c => c.id === id)?.name         ?? id)          : '—';
+  const spoolName = tare => tare != null
+    ? (spools.find(s => s.tare === tare)?.name ?? `${tare}g tare`) : '—';
+
+  const oldG = oldSlot?.grams ?? null;
+  const newG = newSlot.grams  ?? null;
+  if (oldG !== newG) {
+    const f = oldG === null ? '—' : oldG === 0 ? 'Empty' : `${oldG}g`;
+    const t = newG === 0   ? 'Empty' : `${newG}g`;
+    lines.push(`Weight: ${f} → ${t}`);
+  }
+
+  const oldSpool = oldSlot?.spoolWeight ?? null;
+  const newSpool = newSlot.spoolWeight  ?? null;
+  if (oldSpool !== newSpool) {
+    lines.push(`Spool: ${spoolName(oldSpool)} → ${spoolName(newSpool)}`);
+  }
+
+  const oldType = oldSlot?.filamentType ?? null;
+  const newType = newSlot.filamentType  ?? null;
+  if (oldType !== newType) {
+    lines.push(`Type: ${typeName(oldType)} → ${typeName(newType)}`);
+  }
+
+  const oldColor = oldSlot?.color ?? null;
+  const newColor = newSlot.color  ?? null;
+  if (oldColor !== newColor) {
+    lines.push(`Color: ${colorName(oldColor)} → ${colorName(newColor)}`);
+  }
+
+  return lines;
+}
+
+function pushToLog(lines, prevSlot) {
+  const printer    = state.printerList?.find(p => p.id === activeEdit.printerId);
+  const isExternal = printer?.amsType === 'ams-hub' && activeEdit.slot === 5;
+  const slotLabel  = isExternal ? 'External' : `Slot ${activeEdit.slot}`;
+  if (!state.activityLog) state.activityLog = [];
+  state.activityLog.unshift({
+    ts:        new Date().toISOString(),
+    printer:   printer?.name ?? activeEdit.printerId,
+    printerId: activeEdit.printerId,
+    slot:      slotLabel,
+    slotNum:   activeEdit.slot,
+    lines,
+    previous:  prevSlot ? { ...prevSlot } : {},
+  });
+  if (state.activityLog.length > 10) state.activityLog.length = 10;
+}
+
+function undoLogEntry(index) {
+  const entry = state.activityLog?.[index];
+  if (!entry) return;
+
+  const changeDesc = entry.lines.join('\n');
+  if (!confirm(`Undo this change to ${entry.printer} — ${entry.slot}?\n\n${changeDesc}\n\nThis will restore the previous values.`)) return;
+
+  if (!state.printers[entry.printerId]) {
+    alert('Cannot undo — the printer no longer exists.');
+    return;
+  }
+
+  // If previous was empty (slot wasn't set yet), remove the slot data entirely
+  if (!entry.previous || Object.keys(entry.previous).length === 0) {
+    delete state.printers[entry.printerId][entry.slotNum];
+  } else {
+    state.printers[entry.printerId][entry.slotNum] = { ...entry.previous };
+  }
+
+  // Remove this entry from the log — it's been undone
+  state.activityLog.splice(index, 1);
+
+  saveState();
+  renderHome();
+  renderActivityLog();
+}
+
+function renderActivityLog() {
+  const container = document.getElementById('activity-log');
+  if (!container) return;
+  const log = state.activityLog ?? [];
+
+  if (!log.length) {
+    container.innerHTML = '<p class="log-empty">No changes recorded yet.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (let i = 0; i < log.length; i++) {
+    const entry = log[i];
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+
+    const header = document.createElement('div');
+    header.className = 'log-entry-header';
+    const whoSpan = document.createElement('span');
+    whoSpan.className = 'log-entry-who';
+    whoSpan.textContent = `${entry.printer} — ${entry.slot}`;
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'log-entry-time';
+    timeSpan.textContent = formatLogTime(entry.ts);
+    header.appendChild(whoSpan);
+    header.appendChild(timeSpan);
+
+    const changes = document.createElement('div');
+    changes.className = 'log-entry-changes';
+    for (const line of entry.lines) {
+      const span = document.createElement('span');
+      span.className = 'log-change';
+      span.textContent = line;
+      changes.appendChild(span);
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'log-entry-footer';
+    const undoBtn = document.createElement('button');
+    undoBtn.className = 'log-undo-btn';
+    undoBtn.textContent = 'Undo';
+    undoBtn.addEventListener('click', () => undoLogEntry(i));
+    footer.appendChild(undoBtn);
+
+    div.appendChild(header);
+    div.appendChild(changes);
+    div.appendChild(footer);
+    container.appendChild(div);
+  }
+}
+
 // ── Settings ───────────────────────────────────────────────────────────────
 
 function renderSettings() {
@@ -572,6 +743,7 @@ function renderSettings() {
   renderSpoolTypes();
   renderFilamentTypes();
   renderColors();
+  renderActivityLog();
 }
 
 function updateLastExportedDisplay() {
@@ -628,6 +800,7 @@ importInput.addEventListener('change', () => {
         if (!state.printerList)   state.printerList   = defaultPrinterList();
         if (!state.filamentTypes) state.filamentTypes = defaultFilamentTypes();
         if (!state.colors)        state.colors        = defaultColors();
+        if (!state.activityLog)   state.activityLog   = [];
         saveState();
         populateSpoolSelect();
         populateFilamentTypeSelect();

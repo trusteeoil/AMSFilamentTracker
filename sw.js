@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_VERSION = 'v12';
+const CACHE_VERSION = 'v14';
 const CACHE_NAME = `filament-tracker-${CACHE_VERSION}`;
 
 const ASSETS = [
